@@ -1,0 +1,36 @@
+{
+  "name": "claude-video-stabilizer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json && tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:cross": "CROSS=1 playwright test",
+    "test:perf": "PERF=1 playwright test e2e/perf.spec.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@tsconfig/svelte": "^5.0.8",
+    "@types/node": "^24.19.1",
+    "svelte": "^5.57.1",
+    "svelte-check": "^4.7.6",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
+  },
+  "dependencies": {
+    "@techstark/opencv-js": "^5.0.0-release.1",
+    "mediabunny": "^1.61.0"
+  },
+  "description": "Stabilize drifting video in the browser by pinning a point that should never move.",
+  "engines": {
+    "node": ">=22"
+  }
+}

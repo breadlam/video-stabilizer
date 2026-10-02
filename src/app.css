@@ -1,0 +1,138 @@
+:root {
+  --bg: #0e1014;
+  --panel: #161920;
+  --panel-2: #1d212a;
+  --panel-3: #252a35;
+  --border: #2a303c;
+  --text: #e8eaf0;
+  --muted: #9aa3b4;
+  --faint: #6b7385;
+  --accent: #5b8cff;
+  --accent-strong: #3f74f5;
+  --ok: #3ecf8e;
+  --warn: #f5b942;
+  --bad: #ff5d5d;
+  --radius: 10px;
+  --radius-sm: 6px;
+  color-scheme: dark;
+  font-family:
+    Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+#app {
+  height: 100%;
+}
+
+button,
+select,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+
+button:hover:not(:disabled) {
+  background: var(--panel-3);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: white;
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent);
+}
+
+button.ghost {
+  background: transparent;
+  border-color: transparent;
+}
+
+button.ghost:hover:not(:disabled) {
+  background: var(--panel-2);
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+select {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+}
+
+input[type='range'] {
+  accent-color: var(--accent);
+  width: 100%;
+}
+
+a {
+  color: var(--accent);
+}
+
+kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 4px;
+  background: var(--panel-2);
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
