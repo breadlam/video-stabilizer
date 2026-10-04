@@ -16,6 +16,10 @@
           : null,
   )
 
+  const codecName = $derived(
+    { avc: 'H.264', hevc: 'HEVC', vp9: 'VP9', av1: 'AV1', vp8: 'VP8' }[app.info?.codec ?? ''] ?? app.info?.codec ?? 'the source codec',
+  )
+
   function formatSize(bytes: number): string {
     return bytes > 1e9 ? `${(bytes / 1e9).toFixed(2)} GB` : `${(bytes / 1e6).toFixed(1)} MB`
   }
@@ -32,12 +36,16 @@
 </script>
 
 <Panel step={4} title="Export" done={run?.phase === 'done'} disabled={!ready}>
+  <p class="muted">
+    Re-encoded as {codecName} in {app.info?.container.name}, like the original, at the same frame timing, colour
+    settings and orientation{app.info?.hasAudio ? '; audio is copied untouched' : ''}.
+  </p>
   <label class="field">
     <span class="field-head"><span>Quality</span></span>
     <select bind:value={app.settings.quality} disabled={run?.phase === 'running'}>
-      <option value="medium">Medium (smaller file)</option>
-      <option value="high">High</option>
-      <option value="very-high">Very high</option>
+      <option value="lossless">Visually lossless (recommended)</option>
+      <option value="maximum">Maximum (very large files)</option>
+      <option value="compact">Smaller file (slight loss)</option>
     </select>
   </label>
 
@@ -46,7 +54,7 @@
     <div class="progress"><div style:width="{run.progress * 100}%"></div></div>
     <button onclick={() => app.cancelExport()}>Cancel</button>
   {:else}
-    <button class="primary" disabled={!ready} onclick={() => app.startExport()}>Export MP4</button>
+    <button class="primary" disabled={!ready} onclick={() => app.startExport()}>Export {app.info?.container.name}</button>
     {#if reason}<p class="muted">{reason}</p>{/if}
   {/if}
 
@@ -59,8 +67,17 @@
     {:else}
       <p class="ok">Saved {run.fileName}.</p>
     {/if}
-    <p class="muted">{run.message}{app.info?.hasAudio ? ' Audio is copied from the original.' : ''}</p>
-    {#each run.warnings ?? [] as w (w)}<p class="warn">{w}</p>{/each}
+    {#if run.summary}
+      <dl class="summary">
+        <dt>Video</dt>
+        <dd>{run.summary.video}</dd>
+        <dt>Frames</dt>
+        <dd>{run.summary.processing}</dd>
+        <dt>Audio</dt>
+        <dd>{run.summary.audio}</dd>
+      </dl>
+      {#each run.summary.notes as note (note)}<p class="warn">{note}</p>{/each}
+    {/if}
   {:else if run?.phase === 'error'}
     <p class="bad">Export failed: {run.message}</p>
   {:else if run?.phase === 'cancelled'}
@@ -106,6 +123,23 @@
 
   .bad {
     color: var(--bad);
+  }
+
+  .summary {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 10px;
+    margin: 0;
+    font-size: 12px;
+  }
+
+  .summary dt {
+    color: var(--muted);
+  }
+
+  .summary dd {
+    margin: 0;
+    overflow-wrap: anywhere;
   }
 
   .project {

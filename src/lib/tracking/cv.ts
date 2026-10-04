@@ -54,6 +54,7 @@ export interface CV {
   TermCriteria_EPS: number
   INTER_LINEAR: number
   INTER_AREA: number
+  INTER_LANCZOS4: number
   WARP_INVERSE_MAP: number
   BORDER_REPLICATE: number
 }

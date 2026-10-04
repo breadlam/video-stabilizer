@@ -19,8 +19,10 @@ uploaded — so the app is a static site that can be hosted on GitHub Pages.
 4. **Framing**: pinning exposes empty edges. By default the video is cropped to the largest view
    without them; or choose a smaller zoom and fill the edges with black or with pixels from earlier
    frames (good for still scenes). An optional jitter filter smooths the result.
-5. **Export** an MP4 (H.264 where available). The original audio is copied without re-encoding. In
-   Chrome/Edge the file is written straight to disk; elsewhere it downloads when done.
+5. **Export**. The result is encoded like the original: same codec (and codec profile string), bit
+   depth, container, colour tags, rotation metadata, frame timestamps and keyframe positions, with
+   the audio and metadata tags copied untouched. Re-encoding is effectively lossless by default (see
+   below). In Chrome/Edge the file is written straight to disk; elsewhere it downloads when done.
 
 Projects (anchors, corrections and tracking results) can be saved and reloaded as JSON.
 
@@ -28,12 +30,40 @@ Keyboard: <kbd>Space</kbd> play/pause · <kbd>←</kbd>/<kbd>→</kbd> step a fr
 10) · <kbd>Home</kbd>/<kbd>End</kbd> · <kbd>V</kbd> toggle original/stabilized · <kbd>Delete</kbd>
 remove the selected anchor or correction.
 
+### Export quality
+
+Stabilizing requires re-encoding, so the export is built to lose as little as possible:
+
+* **No colour round trip**: frames are warped directly on their YUV planes at native bit depth
+  (8, 10 or 12 bit) on the GPU, never through an 8-bit RGB canvas.
+* **Sharp resampling**: a Lanczos-3 kernel instead of the browser's bilinear filter; an exact
+  identity transform reproduces pixels unchanged.
+* **Constant-quality encoding**, calibrated per codec. *Visually lossless* (default) measures about
+  51–53 dB luma PSNR against the decoded source on a high-detail test video, well under one code
+  value of error. *Maximum* goes further (VP9 becomes mathematically lossless); *Smaller file* trades
+  a little quality for size. Expect files larger than the original: the original's compression
+  artefacts must be preserved too.
+* Encoders that silently ignore quality settings (Firefox does, for quantizers and for VP9/AV1
+  bitrates) are detected with a probe encode, and a high bitrate or another codec is used instead.
+
+The export summary lists exactly what was produced and any deviation from the source, for example:
+
+| Situation | What happens |
+|---|---|
+| Chrome, H.264 / HEVC / VP9 / AV1 source | Same codec and bit depth, constant quality, YUV processing |
+| Firefox (decodes to RGB only) | Same codec where its quality can be controlled (H.264); colour passes through 8-bit RGB (≈ 50 dB) |
+| Firefox, VP9/AV1 source | H.264 in Matroska, because Firefox ignores VP9/AV1 quality settings |
+| 10-bit HEVC (iPhone HDR) in Chrome | Chrome only exposes such frames as 8-bit RGB and cannot encode 10-bit HEVC: 8-bit SDR output |
+
+Upscaling the crop back to the original size softens fine detail by the zoom factor. Choose
+**Output size → Cropped area at native resolution** in Framing to keep pixels 1:1.
+
 ### Browser support
 
-Requires WebCodecs. Tested in current Google Chrome and Firefox (both on macOS); current Edge and
-Safari should work but have not been tested. HEVC (the iPhone default) only decodes where the
-browser and hardware support it — Safari, or Chrome on recent Macs/PCs; converting to H.264 works
-everywhere. HDR sources are exported as SDR.
+Requires WebCodecs and WebGL2. Tested in current Google Chrome and Firefox (both on macOS); current
+Edge and Safari should work but have not been tested. Chrome gives the best export fidelity. HEVC
+(the iPhone default) only decodes where the browser and hardware support it — Safari, or Chrome on
+recent Macs/PCs.
 
 ### Limitations
 
@@ -70,8 +100,10 @@ npm run build      # static site in dist/
 ```
 
 The end-to-end tests render a scene seen by a drifting, rolling camera with known ground truth,
-encode it with ffmpeg, drive the UI (anchors, tracking, corrections, export), and check both tracking
-accuracy (≈0.1 px) and the residual motion in the exported file (≈0.1–0.15 px).
+encode it with ffmpeg, drive the UI (anchors, tracking, corrections, export), and check tracking
+accuracy (≈0.1 px), the residual motion in the exported file (≈0.1–0.15 px), and export fidelity:
+codec, bit depth, colour tags, timestamps and bit-identical audio must match the source, and PSNR
+against the source must stay above the lossless thresholds (8-bit H.264 and 10-bit VP9).
 
 ## Deploying to GitHub Pages
 

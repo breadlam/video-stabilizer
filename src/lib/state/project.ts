@@ -27,6 +27,8 @@ export interface Settings {
   zoomMode: 'auto' | 'manual'
   zoom: number
   fill: EdgeFill
+  /** Output frame size: the source's, or the crop at its native resolution (no upscaling). */
+  outputSize: 'source' | 'native'
   quality: ExportQuality
 }
 

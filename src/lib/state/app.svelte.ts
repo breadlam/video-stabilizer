@@ -1,7 +1,7 @@
 import type { Vec2 } from '../geometry/affine'
 import { autoCrop, cropForZoom, type CropResult, type Rect } from '../geometry/crop'
 import { solveTrajectory, type Trajectory } from '../geometry/trajectory'
-import type { FromExporter, ToExporter } from '../media/exportProtocol'
+import type { ExportQuality, ExportSummary, FromExporter, ToExporter } from '../media/exportProtocol'
 import { FramePlayer, type FrameCanvas } from '../media/frames'
 import { openVideo, type OpenedVideo } from '../media/video'
 import { evenSize, packMatrices } from '../render/warp'
@@ -32,8 +32,10 @@ export interface ExportRun {
   fileName?: string
   size?: number
   savedToDisk?: boolean
-  warnings?: string[]
+  summary?: ExportSummary
 }
+
+const QUALITIES: ExportQuality[] = ['lossless', 'maximum', 'compact']
 
 function defaultSettings(width = 1920, height = 1080): Settings {
   return {
@@ -44,7 +46,8 @@ function defaultSettings(width = 1920, height = 1080): Settings {
     zoomMode: 'auto',
     zoom: 1,
     fill: 'black',
-    quality: 'high',
+    outputSize: 'source',
+    quality: 'lossless',
   }
 }
 
@@ -127,7 +130,14 @@ class AppState {
     return cropForZoom(auto, Math.min(this.settings.zoom, auto.zoom), info.width, info.height)
   })
 
-  readonly outputSize = $derived(this.info ? evenSize(this.info.width, this.info.height) : null)
+  /** Output size in display orientation: the source's, or the crop at native resolution. */
+  readonly outputSize = $derived.by(() => {
+    const info = this.info
+    if (!info) return null
+    const crop = this.crop
+    if (this.settings.outputSize === 'native' && crop) return evenSize(Math.round(crop.rect.w), Math.round(crop.rect.h))
+    return evenSize(info.width, info.height)
+  })
 
   /** Frames where at least one anchor was not usable, among tracked frames. */
   readonly problemFrames: number = $derived.by(() => {
@@ -454,7 +464,8 @@ class AppState {
     if (!video || !traj || !crop || !size || this.exporting?.phase === 'running') return
     this.stop()
     const base = video.info.name.replace(/\.[^.]+$/, '')
-    const fileName = `${base}-stabilized.mp4`
+    const { container } = video.info
+    const fileName = `${base}-stabilized.${container.extension}`
 
     let fileHandle: FileSystemFileHandle | undefined
     const picker = (window as unknown as { showSaveFilePicker?: (o: unknown) => Promise<FileSystemFileHandle> })
@@ -463,7 +474,7 @@ class AppState {
       try {
         fileHandle = await picker({
           suggestedName: fileName,
-          types: [{ description: 'MP4 video', accept: { 'video/mp4': ['.mp4'] } }],
+          types: [{ description: `${container.name} video`, accept: { [container.mimeType]: [`.${container.extension}`] } }],
         })
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return
@@ -487,13 +498,14 @@ class AppState {
           const blob = msg.buffer ? new Blob([msg.buffer], { type: msg.mimeType }) : null
           this.exporting = {
             ...run,
+            // The container only changes when the source codec could not be encoded at full quality.
+            fileName: blob ? `${base}-stabilized.${msg.summary.extension}` : run.fileName,
             phase: 'done',
             progress: 1,
             url: blob ? URL.createObjectURL(blob) : undefined,
             size: blob?.size,
             savedToDisk: !blob,
-            warnings: msg.warnings,
-            message: `Encoded as ${msg.codec.toUpperCase()}.`,
+            summary: msg.summary,
           }
           break
         }
@@ -563,7 +575,10 @@ class AppState {
       this.refIndex = p.refIndex
       this.anchors = p.anchors
       this.corrections = p.corrections
-      this.settings = { ...defaultSettings(info.width, info.height), ...p.settings }
+      const settings = { ...defaultSettings(info.width, info.height), ...p.settings }
+      // Projects saved by older versions used other quality names.
+      if (!QUALITIES.includes(settings.quality)) settings.quality = 'lossless'
+      this.settings = settings
       this.obs = p.obs
       this.trackedUpTo = p.trackedUpTo
       this.dirtyFrom = null

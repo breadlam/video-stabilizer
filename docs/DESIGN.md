@@ -46,8 +46,10 @@ Solve (main thread, pure TS): observations → per-frame camera transform M_t (r
           → gap filling, optional jitter filter → auto-crop rectangle
 
 Pass 2 — Export (Web Worker: export.worker.ts)
-          Mediabunny Conversion, video `process(sample)`: draw frame through the output matrix on an
-          OffscreenCanvas → WebCodecs encode → MP4; audio copied without re-encoding when possible
+          Mediabunny VideoSampleSink (decoder chosen so frames expose YUV planes at full bit depth)
+          → WebGL2 Lanczos-3 warp per plane in stored orientation (gpuWarp.ts)
+          → WebCodecs VideoEncoder, configured by encoderPlan.ts → Mediabunny muxer, same container;
+          audio packets copied bit-exact
 ```
 
 Frames are streamed, never accumulated: between passes only a few numbers per frame are kept.
@@ -93,6 +95,31 @@ and scales it to the source resolution. The user can choose any zoom between 1×
 auto value, and how uncovered areas are filled: black, or pixels from earlier frames
 ("history" — effective for static scenes).
 
+## Export fidelity — `src/lib/media/export.worker.ts`, `encoderPlan.ts`, `src/lib/render/gpuWarp.ts`
+
+Goal: the only change to the video is the stabilizing warp. Measured on a colour, high-detail
+fixture (`e2e/quality.spec.ts`), the previous canvas-based pipeline reached 42 dB luma PSNR on the
+unwarped reference frame; this one reaches 53 dB (H.264) and 64 dB (10-bit VP9), and stabilized
+frames are within ~0.7 dB of an ideal reference warp of the source without re-encoding.
+
+* **Decoding**: hardware first, software if the hardware path hides the planes (Chrome returns
+  opaque frames for 10-bit hardware decodes) or reduces bit depth. Frames are processed in stored
+  orientation; the output keeps the source's rotation/flip metadata.
+* **Warp**: per plane on the GPU at native bit depth (integer textures), Lanczos-3, chroma siting
+  respected (left-co-sited horizontally, centred vertically). Output is packed four 8-bit or two
+  16-bit samples per RGBA8 texel so the read-back is exactly the plane data. Uncovered areas are
+  black (in the source's range) or the previous output frame. If a browser only provides RGB frames
+  (Firefox) or opaque frames, the warp runs in RGB and converts to YUV with the source's matrix.
+* **Encoding**: WebCodecs is driven directly (Mediabunny only muxes) to use per-frame quantizers.
+  The planner tries the source codec string, then generic strings, at the source bit depth, then 8
+  bits, then other codecs; for each it checks `isConfigSupported` *and* probes that the quality
+  setting actually changes the output (Firefox accepts but ignores quantizers, and bitrates for
+  VP9/AV1). Quantizers were calibrated per codec (H.264 8, HEVC 7, VP9 1, AV1 2 by default).
+  Keyframes are placed where the source has them; frame timestamps and durations are copied; the
+  output colour space (and MP4 `colr` box) is the source's.
+* **Container and audio**: same container as the source unless the codec had to change and does not
+  fit (WebM → Matroska); audio packets and metadata tags are copied unchanged.
+
 ## UI flow
 
 1. **Open** — drag & drop or pick a file.
@@ -101,8 +128,8 @@ auto value, and how uncovered areas are filled: black, or pixels from earlier fr
 3. **Track** — progress with live overlay; confidence strip on the timeline; click red regions to
    jump there and fix them.
 4. **Preview** — original / stabilized toggle; playback; zoom and edge-fill settings.
-5. **Export** — MP4 (H.264 preferred), audio copied. On Chromium the file streams straight to disk
-   (File System Access API), elsewhere it downloads from memory. Project (anchors, corrections,
+5. **Export** — same encoding as the source (see *Export fidelity*), audio copied. On Chromium the
+   file streams straight to disk (File System Access API), elsewhere it downloads from memory. Project (anchors, corrections,
    tracking data) can be saved/loaded as JSON.
 
 Keyboard: Space play/pause, ←/→ frame step, Shift+←/→ 10 frames, Home/End, Delete removes the
@@ -138,7 +165,11 @@ e2e/              Playwright: load → anchor → track → export on a generate
 * Pinning is exact for camera *rotation* (typical handheld drift). If the camera translates,
   only the depth plane of the anchors is pinned (parallax).
 * Large drift ⇒ large crop (or uncovered edges).
-* HEVC decode depends on browser + hardware; HDR sources are exported as SDR.
+* HEVC decode depends on browser + hardware. HDR survives only where the browser exposes the
+  10-bit planes and can encode 10-bit (e.g. VP9 in Chrome); Chrome's 10-bit HEVC goes through 8-bit
+  RGB and is exported as SDR.
+* Re-encoding cannot be literally lossless except for VP9 at *Maximum*; files are larger than the
+  original.
 * OpenCV.js is ~13 MB on first load (cached afterwards).
 * Rolling-shutter wobble and lens distortion are not corrected.
 * Preview playback is silent; audio is preserved in the export.

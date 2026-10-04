@@ -100,7 +100,20 @@ export function truthAt(v: DriftVideo, frame: number, ref: Vec2): Vec2 {
 }
 
 export interface ProbeResult {
-  streams: { codec_type: string; codec_name: string; width?: number; height?: number; nb_frames?: string }[]
+  streams: {
+    codec_type: string
+    codec_name: string
+    width?: number
+    height?: number
+    nb_frames?: string
+    side_data_list?: { rotation?: number }[]
+  }[]
+}
+
+/** Display rotation of the video stream from its metadata (0 when none). */
+export function videoRotation(path: string): number {
+  const v = probe(path).streams.find((s) => s.codec_type === 'video')
+  return v?.side_data_list?.find((d) => d.rotation !== undefined)?.rotation ?? 0
 }
 
 export function probe(path: string): ProbeResult {
@@ -158,3 +171,163 @@ export function patchShift(
 }
 
 export { loadCv, writeFileSync }
+
+export interface ColorVideoOptions {
+  dir: string
+  /** 'h264': 8-bit H.264 High in MP4 (BT.709); 'vp9-10': 10-bit VP9 profile 2 in WebM. */
+  format: 'h264' | 'vp9-10'
+  frames?: number
+  roll?: number
+}
+
+/**
+ * A noise-free colour scene seen by a drifting camera, rendered with Lanczos interpolation so every
+ * frame is equally sharp. The stabilized version of any frame should equal frame 0 (where covered),
+ * which makes end-to-end fidelity measurable.
+ */
+export async function makeColorDriftVideo(name: string, opts: ColorVideoOptions): Promise<DriftVideo> {
+  const cv = await loadCv()
+  const width = 640
+  const height = 360
+  const { frames = 60, roll = 0.02 } = opts
+  const fps = 30
+  const tw = width + 240
+  const th = height + 240
+  const luma = makeTexture(cv, tw, th, 3)
+  const c1 = makeTexture(cv, tw, th, 11)
+  const c2 = makeTexture(cv, tw, th, 17)
+  const sims = driftPath(frames, { amplitude: 30, roll })
+  const channels = [
+    { tex: luma, mix: (l: number, a: number) => 0.75 * l + 0.45 * a - 20, other: c1 },
+    { tex: luma, mix: (l: number) => l, other: luma },
+    { tex: luma, mix: (l: number, b: number) => 0.7 * l + 0.5 * b - 25, other: c2 },
+  ].map(({ tex, mix, other }) => {
+    const m = new cv.Mat(th, tw, cv.CV_8UC1)
+    for (let i = 0; i < m.data.length; i++) m.data[i] = Math.max(0, Math.min(255, Math.round(mix(tex.data[i], other.data[i]))))
+    const v = renderVideo(cv, m, width, height, { x: 120, y: 120 }, sims, 0, 1, cv.INTER_LANCZOS4)
+    m.delete()
+    return v
+  })
+  ;[luma, c1, c2].forEach((m) => m.delete())
+  const back = invert(channels[0].motion[0])
+  const motion = channels[0].motion.map((M) => multiply(M, back))
+
+  const path = join(opts.dir, name)
+  const video =
+    opts.format === 'h264'
+      ? ['-c:v', 'libx264', '-preset', 'slow', '-crf', '8', '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-g', '30']
+      : ['-c:v', 'libvpx-vp9', '-profile:v', '2', '-pix_fmt', 'yuv420p10le', '-crf', '6', '-b:v', '0', '-g', '30']
+  const audio = opts.format === 'h264' ? ['-c:a', 'aac', '-b:a', '128k'] : ['-c:a', 'libopus', '-b:a', '96k']
+  const ff = spawn(
+    'ffmpeg',
+    [
+      '-y', '-loglevel', 'error',
+      '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', `${width}x${height}`, '-r', String(fps), '-i', 'pipe:0',
+      '-f', 'lavfi', '-i', `sine=frequency=440:sample_rate=48000:duration=${frames / fps}`,
+      '-vf', 'scale=out_color_matrix=bt709:out_range=tv,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv',
+      ...video,
+      '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv',
+      ...audio,
+      '-shortest',
+      path,
+    ],
+    { stdio: ['pipe', 'inherit', 'inherit'] },
+  )
+  const rgb = Buffer.alloc(width * height * 3)
+  for (let f = 0; f < frames; f++) {
+    for (let i = 0; i < width * height; i++) {
+      rgb[3 * i] = channels[0].frames[f].data[i]
+      rgb[3 * i + 1] = channels[1].frames[f].data[i]
+      rgb[3 * i + 2] = channels[2].frames[f].data[i]
+    }
+    if (!ff.stdin.write(Buffer.from(rgb))) await new Promise((r) => ff.stdin.once('drain', r))
+  }
+  ff.stdin.end()
+  await new Promise<void>((resolve, reject) => ff.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}`)))))
+  channels.forEach((c) => c.dispose())
+  return { path, width, height, frames, fps, motion }
+}
+
+export interface YuvFrame {
+  y: Uint8Array | Uint16Array
+  u: Uint8Array | Uint16Array
+  v: Uint8Array | Uint16Array
+}
+
+/** Decodes to planar 4:2:0 at 8 or 10 bits (10-bit samples are little-endian 16-bit). */
+export function decodeYuv(path: string, width: number, height: number, bits: 8 | 10 = 8): YuvFrame[] {
+  const pixFmt = bits === 8 ? 'yuv420p' : 'yuv420p10le'
+  const r = spawnSync('ffmpeg', ['-v', 'error', '-i', path, '-f', 'rawvideo', '-pix_fmt', pixFmt, 'pipe:1'], { maxBuffer: 1 << 30 })
+  if (r.status !== 0) throw new Error(r.stderr.toString())
+  const bps = bits === 8 ? 1 : 2
+  const ySize = width * height * bps
+  const cSize = (width / 2) * (height / 2) * bps
+  const frameSize = ySize + 2 * cSize
+  const out: YuvFrame[] = []
+  const buf = new Uint8Array(r.stdout.buffer, r.stdout.byteOffset, r.stdout.byteLength).slice()
+  for (let o = 0; o + frameSize <= buf.length; o += frameSize) {
+    const view = (start: number, len: number) =>
+      bits === 8 ? buf.subarray(o + start, o + start + len) : new Uint16Array(buf.buffer, o + start, len / 2)
+    out.push({ y: view(0, ySize), u: view(ySize, cSize), v: view(ySize + cSize, cSize) })
+  }
+  return out
+}
+
+/** PSNR of two planes over a rectangle (plane coordinates). */
+export function psnr(
+  a: ArrayLike<number>,
+  b: ArrayLike<number>,
+  stride: number,
+  rect: { x: number; y: number; w: number; h: number },
+  maxValue: number,
+): number {
+  let se = 0
+  for (let y = rect.y; y < rect.y + rect.h; y++) {
+    for (let x = rect.x; x < rect.x + rect.w; x++) {
+      const d = a[y * stride + x] - b[y * stride + x]
+      se += d * d
+    }
+  }
+  const mse = se / (rect.w * rect.h)
+  return mse === 0 ? Infinity : 10 * Math.log10((maxValue * maxValue) / mse)
+}
+
+export interface VideoStreamInfo {
+  codec_name: string
+  profile?: string
+  pix_fmt?: string
+  width: number
+  height: number
+  color_range?: string
+  color_space?: string
+  color_transfer?: string
+  color_primaries?: string
+  nb_frames?: string
+  bit_rate?: string
+}
+
+export function videoStream(path: string): VideoStreamInfo {
+  return probe(path).streams.find((s) => s.codec_type === 'video') as unknown as VideoStreamInfo
+}
+
+/** Presentation timestamps (seconds) of the video stream, sorted. */
+export function videoPts(path: string): number[] {
+  const r = spawnSync(
+    'ffprobe',
+    ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', path],
+    { encoding: 'utf8' },
+  )
+  return r.stdout
+    .split('\n')
+    .filter(Boolean)
+    .map(Number)
+    .sort((a, b) => a - b)
+}
+
+/** MD5 of a stream's packets, copied without decoding (equal ⇔ bit-identical stream data). */
+export function streamMd5(path: string, stream: 'a:0' | 'v:0'): string {
+  const r = spawnSync('ffmpeg', ['-v', 'error', '-i', path, '-map', `0:${stream}`, '-c', 'copy', '-f', 'md5', '-'], {
+    encoding: 'utf8',
+  })
+  return r.stdout.trim()
+}

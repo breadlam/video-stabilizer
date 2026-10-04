@@ -56,8 +56,19 @@
       </span>
       <input type="range" min="0" max="6" step="0.5" bind:value={app.settings.smoothing} />
     </label>
+    <label class="field">
+      <span class="field-head"><span>Output size</span></span>
+      <select bind:value={app.settings.outputSize}>
+        <option value="source">Same as the original ({app.info?.width}×{app.info?.height})</option>
+        <option value="native">Cropped area at native resolution (no upscaling)</option>
+      </select>
+    </label>
     <p class="muted">
       Output {app.outputSize?.width}×{app.outputSize?.height}, showing {keptPercent}% of the frame width.
+      {#if app.settings.outputSize === 'source' && zoom > 1.005}
+        Enlarging the crop ×{zoom.toFixed(2)} back to full size softens fine detail slightly; choose
+        native resolution to keep every pixel 1:1.
+      {/if}
       {#if auto.zoom > 1.25}
         <span class="warn">The drift is large, so the crop is substantial.</span>
       {/if}

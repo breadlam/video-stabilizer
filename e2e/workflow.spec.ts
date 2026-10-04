@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { decodeGray, loadCv, makeDriftVideo, outDir, patchShift, probe, truthAt, type DriftVideo } from './fixtures'
+import { decodeGray, loadCv, makeDriftVideo, outDir, patchShift, probe, truthAt, videoRotation, type DriftVideo } from './fixtures'
 
 let OUT_DIR: string
 test.beforeAll(async ({}, info) => {
@@ -110,8 +110,11 @@ test('handles portrait video with rotation metadata', async ({ page }) => {
   const out = join(OUT_DIR, 'portrait-stabilized.mp4')
   await (await download).saveAs(out)
 
+  // Stored like the source: same frame size and the same rotation metadata, rather than rotated pixels.
   const v = probe(out).streams.find((s) => s.codec_type === 'video')!
-  expect([v.width, v.height]).toEqual([W, H])
+  expect([v.width, v.height]).toEqual([video.width, video.height])
+  expect(videoRotation(out)).toBe(videoRotation(video.path))
+  expect(videoRotation(out)).not.toBe(0)
   const cv = await loadCv()
   const frames = decodeGray(out, W, H)
   let residual = 0

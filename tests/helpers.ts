@@ -111,6 +111,7 @@ export function renderVideo(
   sims: Similarity[],
   noise = 2,
   seed = 7,
+  interpolation = cv.INTER_LINEAR,
 ): SyntheticVideo {
   const rand = mulberry32(seed)
   const pivot = { x: width / 2, y: height / 2 }
@@ -122,7 +123,7 @@ export function renderVideo(
     const by = inv.b * 0.5 + inv.d * 0.5 + inv.f + offset.y - 0.5
     const M = cv.matFromArray(2, 3, cv.CV_64F, [inv.a, inv.c, bx, inv.b, inv.d, by])
     const out = new cv.Mat()
-    cv.warpAffine(texture, out, M, new cv.Size(width, height), cv.INTER_LINEAR | cv.WARP_INVERSE_MAP, cv.BORDER_REPLICATE)
+    cv.warpAffine(texture, out, M, new cv.Size(width, height), interpolation | cv.WARP_INVERSE_MAP, cv.BORDER_REPLICATE)
     M.delete()
     if (noise > 0) {
       const d = out.data

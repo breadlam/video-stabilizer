@@ -1,4 +1,18 @@
-import { ALL_FORMATS, BlobSource, EncodedPacketSink, Input, type InputVideoTrack } from 'mediabunny'
+import { ALL_FORMATS, BlobSource, EncodedPacketSink, Input, MATROSKA, QTFF, WEBM, type InputVideoTrack } from 'mediabunny'
+
+/** Output container, which is always the same as the source's (MP4 for other inputs). */
+export interface Container {
+  name: string
+  extension: string
+  mimeType: string
+}
+
+const CONTAINERS = {
+  mp4: { name: 'MP4', extension: 'mp4', mimeType: 'video/mp4' },
+  mov: { name: 'MOV', extension: 'mov', mimeType: 'video/quicktime' },
+  webm: { name: 'WebM', extension: 'webm', mimeType: 'video/webm' },
+  mkv: { name: 'Matroska', extension: 'mkv', mimeType: 'video/x-matroska' },
+} satisfies Record<string, Container>
 
 export interface VideoInfo {
   name: string
@@ -11,6 +25,9 @@ export interface VideoInfo {
   duration: number
   fps: number
   codec: string | null
+  /** Full codec parameter string, e.g. avc1.64002a. */
+  codecString: string | null
+  container: Container
   hasAudio: boolean
 }
 
@@ -50,9 +67,16 @@ export async function openVideo(file: File): Promise<OpenedVideo> {
     duration,
     fps: timestamps.length > 1 && span > 0 ? (timestamps.length - 1) / span : 30,
     codec,
+    codecString: await track.getCodecParameterString(),
+    container: await containerOf(input),
     hasAudio: (await input.getPrimaryAudioTrack()) !== null,
   }
   return { file, input, track, info }
+}
+
+async function containerOf(input: Input): Promise<Container> {
+  const f = await input.getFormat()
+  return f === QTFF ? CONTAINERS.mov : f === WEBM ? CONTAINERS.webm : f === MATROSKA ? CONTAINERS.mkv : CONTAINERS.mp4
 }
 
 export async function listFrameTimestamps(track: InputVideoTrack): Promise<number[]> {
