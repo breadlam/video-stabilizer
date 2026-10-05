@@ -109,8 +109,9 @@ against the source must stay above the lossless thresholds (8-bit H.264 and 10-b
 
 The workflow in `.github/workflows/deploy.yml` runs type checks, unit tests and the build on every
 push and pull request, and deploys `dist/` to GitHub Pages on pushes to `main`. The browser
-end-to-end tests run as a separate job that reports results without blocking the deploy, since they
-depend on the video codecs of GitHub's (hardware-encoder-less) Linux runners. In the repository
+end-to-end tests (`.github/workflows/e2e.yml`) run on demand from the Actions tab, since they depend
+on the video codecs of the machine (GitHub's Linux runners have no hardware encoders); run them
+locally with `npm run test:e2e`. In the repository
 settings, set **Pages → Build and deployment → Source** to **GitHub Actions**. The build uses
 relative asset paths, so it works under any repository path.
 
